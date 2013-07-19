@@ -24,11 +24,48 @@
 */
 
 
+//------------------------------------------------------------------------------------------------------------------------------------------
+
+@interface KVOContext : NSObject
+
+@property (nonatomic, assign, readonly)NSObject *broadcaster;
+@property (nonatomic, assign, readonly)NSObject *observer;
+@property (nonatomic, strong, readonly)NSString *keyPath;
+@property (nonatomic, assign, readonly)void *context;
+@property (nonatomic, strong, readonly)void(^callback)(void);
+
+@end
+
+
+//------------------------------------------------------------------------------------------------------------------------------------------
+
+@interface KVOProxy : NSObject
+
+extern NSString *const KVOContextTypeObservers;
+extern NSString *const KVOContextTypeObservees;
+
+/*
+ The KVO proxy object's contexts can be indexed by:
+ KVOContextTypeObservees: a collection of KVOContexts representing objects we are observers of.
+ KVOContextTypeObservees: a collection of KVOContexts representing objects that are observers of us.
+ 
+ This is for information purposes only and you should never attempt to mutate the containers or their elements.
+ */
+@property (nonatomic, strong, readonly)NSDictionary *contexts;
+
+@end
+
+
+//------------------------------------------------------------------------------------------------------------------------------------------
+
 @interface NSObject (__EASY_KVO__)
 
-/* 
+@property (nonatomic, readonly)KVOProxy *kvoProxy;
+
+/*
  Use this method if you want to write the handling of a KVO notification 'in-place' thru a callback,
- as opposed to inside -observeValueForKeyPath:ofObject:change:context:*/
+ as opposed to inside -observeValueForKeyPath:ofObject:change:context:
+*/
 - (void)addObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath options:(NSKeyValueObservingOptions)options context:(void *)context callback:(void(^)(void))callback;
 
 @end
