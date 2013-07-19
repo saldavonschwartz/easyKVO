@@ -1,7 +1,7 @@
 
 //
 //  NSObject+__EASY_KVO__.h
-//
+//  https://github.com/saldavonschwartz/easyKVO
 /*
  Copyright (c) 2013 Federico Saldarini
  
