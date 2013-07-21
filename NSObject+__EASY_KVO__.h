@@ -24,7 +24,7 @@
 */
 
 
-typedef void(^KVOCallback)(NSString *keyPath, NSObject *object, NSDictionary *change, void* context);
+typedef void(^KVOCallback)(NSString *keyPath, __unsafe_unretained NSObject *object, NSDictionary *change, void* context);
 typedef void(^OBserverCallback)(__unsafe_unretained id oberservee);
 
 //------------------------------------------------------------------------------------------------------------------------------------------
@@ -32,6 +32,7 @@ typedef void(^OBserverCallback)(__unsafe_unretained id oberservee);
 @interface KVOContext : NSObject
 
 typedef enum {
+    KVOContextCallbackTypeNone, 
     KVOContextCallbackTypeKVO,
     KVOContextCallbackTypeObserver
 } KVOContextCallbackType;

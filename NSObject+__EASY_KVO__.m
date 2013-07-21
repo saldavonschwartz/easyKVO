@@ -104,7 +104,7 @@ static NSString *CallbackEncodingObserver;
         self.observee = observee;
         self.observer = observer;
         self.keyPath = keyPath;
-        self.context = self.context;
+        self.context = context;
         
         if (callback) {
             self.callback = [callback copy];
@@ -133,6 +133,18 @@ static NSString *CallbackEncodingObserver;
     }
     
     return equality;
+}
+
+- (NSString *)description
+{
+    return [NSString stringWithFormat:@"%@(\n  observee: %@\n  observer: %@\n  keypath: %@\n  context: %@\n  callback: %@ | type = %@\n)",
+            [super description],
+            self.observee,
+            self.observer,
+            self.keyPath,
+            self.context,
+            self.callback,
+            self.callbackType == KVOContextCallbackTypeKVO ? @"KVO callback" : self.callbackType == KVOContextCallbackTypeObserver ? @"Observer callback" : @"none"];
 }
 
 - (KVOProxy *)kvoProxy
