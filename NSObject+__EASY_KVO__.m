@@ -174,6 +174,10 @@ static NSString *CallbackEncodingObserver;
 
 - (void)dealloc
 {
+    for (KVOContext *aContext in self.contexts.copy) {
+        [aContext.observee removeObserver:aContext.observer forKeyPath:aContext.keyPath context:aContext.context];
+    }
+    
 #if !__has_feature(objc_arc)
     [_contexts release];
     [_i release];
@@ -303,16 +307,11 @@ IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
 {
     KVOProxy *kvoProxy = objc_getAssociatedObject(self, KVOProxyKey);
     if (kvoProxy) {
-        for (KVOContext *aContext in kvoProxy.contexts.copy) {
-            [aContext.observee removeObserver:aContext.observer forKeyPath:aContext.keyPath context:aContext.context];
-        }
-        
         objc_setAssociatedObject(self, KVOProxyKey, nil, OBJC_ASSOCIATION_RETAIN);
 #if !__has_feature(objc_arc)
         [kvoProxy release];
 #endif
     }
-
 
     _originalDealloc(self, NSSelectorFromString(@"dealloc"));
 }
