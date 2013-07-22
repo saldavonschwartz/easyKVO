@@ -51,7 +51,7 @@ typedef enum {
 
 @interface KVOProxy : NSObject
 
-@property (nonatomic, strong, readonly)NSMutableArray *contexts;
+@property (nonatomic, strong, readonly)NSArray *contexts;
 
 @end
 
@@ -60,7 +60,7 @@ typedef enum {
 
 @interface NSObject (__EASY_KVO__)
 
-@property (nonatomic, readonly)KVOProxy *kvoProxy;
+@property (nonatomic, strong, readonly)KVOProxy *kvoProxy;
 
 /*
  Use these methods if you want to write the handling of a KVO notification 'in-place' thru a callback,
