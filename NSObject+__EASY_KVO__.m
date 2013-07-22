@@ -130,7 +130,6 @@ static NSString *CallbackEncodingObserver;
         KVOContext *rho = (KVOContext*)object;
         equality = (self.observee == rho.observee &&
                     self.observer == rho.observer &&
-                    self.context == rho.context &&
                     [self.keyPath isEqualToString:rho.keyPath]);
     }
     
@@ -187,7 +186,7 @@ static NSString *CallbackEncodingObserver;
 {
     NSSet *contextsToUnbind = [NSSet setWithArray:self.contexts];
     for (KVOContext *aContext in contextsToUnbind) {
-        [aContext.observee removeObserver:aContext.observer forKeyPath:aContext.keyPath context:aContext.context];
+        [aContext.observee removeObserver:aContext.observer forKeyPath:aContext.keyPath];
     }
 }
 
