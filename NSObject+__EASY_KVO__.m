@@ -28,9 +28,11 @@
 #import <objc/runtime.h>
 
 #if __has_feature(objc_arc)
-#define __BRIDGE_IF_USING_ARC(x) __bridge x
+#define __BRIDGE_IF_ARC(x) __bridge x
+#define __RELEASE_IF_NO_ARC(x)
 #else
-#define __BRIDGE_IF_USING_ARC(x) x
+#define __BRIDGE_IF_ARC(x) x
+#define __RELEASE_IF_NO_ARC(x) [x release]
 #endif
 
 static const char *KVOProxyKey = "KVOProxyKey";
@@ -52,7 +54,7 @@ typedef struct {
 
 NSString *NSStringFromBlockEncoding(id block)
 {
-    Block *t_block = (__BRIDGE_IF_USING_ARC(void*))block;
+    Block *t_block = (__BRIDGE_IF_ARC(void*))block;
     BlockDescriptor *descriptor = t_block->descriptor;
     
     int copyDisposeFlag = 1 << 25;
@@ -160,23 +162,33 @@ static NSString *CallbackEncodingObserver;
 @interface KVOProxy ()
 
 @property (nonatomic, strong)NSMutableIndexSet *i;
-@property (nonatomic, strong)NSObject *parent;
+@property (nonatomic, assign)NSObject *delegate;
+
+- (void)unbindAllContexts;
 
 @end
 
 
 @implementation KVOProxy
 
-- (id)initWithParent:(NSObject*)parent
+- (id)initWithDelegate:(NSObject*)delegate
 {
     self = [super init];
     if (self) {
         _contexts = [[NSMutableArray alloc] init];
         _i = [[NSMutableIndexSet alloc] init];
-        self.parent = parent;
+        self.delegate = delegate;
     }
     
     return self;
+}
+
+- (void)unbindAllContexts
+{
+    NSSet *contextsToUnbind = [NSSet setWithArray:self.contexts];
+    for (KVOContext *aContext in contextsToUnbind) {
+        [aContext.observee removeObserver:aContext.observer forKeyPath:aContext.keyPath context:aContext.context];
+    }
 }
 
 - (KVOProxy *)kvoProxy
@@ -186,10 +198,7 @@ static NSString *CallbackEncodingObserver;
 
 - (void)dealloc
 {
-    for (KVOContext *aContext in self.contexts.copy) {
-        [aContext.observee removeObserver:aContext.observer forKeyPath:aContext.keyPath context:aContext.context];
-    }
-    
+    NSLog(@"\nDEAL proxy");
 #if !__has_feature(objc_arc)
     [_contexts release];
     [_i release];
@@ -199,22 +208,17 @@ static NSString *CallbackEncodingObserver;
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
 {
-    KVOContext *aContext = [[KVOContext alloc] initWithObservee:object observer:self.parent keyPath:keyPath context:context callback:nil];
+    KVOContext *aContext = [[KVOContext alloc] initWithObservee:object observer:self.delegate keyPath:keyPath context:context callback:nil];
     
     if (!self.i.count) {
         self.i = [self.contexts indexesOfObjectsPassingTest:^BOOL(KVOContext *anotherContext, NSUInteger idx, BOOL *stop) {
             return [aContext isEqual:anotherContext];
         }].mutableCopy;
-#if !__has_feature(objc_arc)
-        [_i release];
-#endif
+        __RELEASE_IF_NO_ARC(_i);
     }
     
     if (self.i.count) {
-#if !__has_feature(objc_arc)
-        [aContext release];
-#endif
-        
+        __RELEASE_IF_NO_ARC(aContext);
         aContext = _contexts[self.i.firstIndex];
         [self.i removeIndex:self.i.firstIndex];
         
@@ -241,7 +245,6 @@ static NSString *CallbackEncodingObserver;
 
 static IMP _originalAddObserver;
 static IMP _originalRemoveObserver;
-static IMP _originalRemoveObserverWithContext;
 static IMP _originalDealloc;
 
 IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
@@ -256,7 +259,6 @@ IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
 {
     _originalAddObserver = popAndReplaceImplementation(self, @selector(addObserver:forKeyPath:options:context:), @selector(__EASY_KVO__addObserver:forKeyPath:options:context:));
     _originalRemoveObserver = popAndReplaceImplementation(self, @selector(removeObserver:forKeyPath:), @selector(__EASY_KVO__removeObserver:forKeyPath:));
-    _originalRemoveObserverWithContext = popAndReplaceImplementation(self, @selector(removeObserver:forKeyPath:context:), @selector(__EASY_KVO__removeObserver:forKeyPath:context:));
     _originalDealloc = popAndReplaceImplementation(self, NSSelectorFromString(@"dealloc"), @selector(__EASY_KVO__dealloc));
 }
 
@@ -264,7 +266,7 @@ IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
 {
     KVOProxy *kvoProxy = objc_getAssociatedObject(self, KVOProxyKey);
     if (!kvoProxy) {
-        kvoProxy = [[KVOProxy alloc] initWithParent:self];
+        kvoProxy = [[KVOProxy alloc] initWithDelegate:self];
         objc_setAssociatedObject(self, KVOProxyKey, kvoProxy, OBJC_ASSOCIATION_RETAIN);
     }
     
@@ -273,19 +275,11 @@ IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
 
 - (void)__EASY_KVO__removeObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath
 {
-    _originalRemoveObserver(self, @selector(removeObserver:forKeyPath:context:), observer.kvoProxy, keyPath);
+    _originalRemoveObserver(self, @selector(removeObserver:forKeyPath:), observer.kvoProxy, keyPath);
     KVOContext *aContext = [[KVOContext alloc] initWithObservee:self observer:observer keyPath:keyPath context:nil callback:nil];
     [aContext.observee.kvoProxy.contexts removeObject:aContext];
     [aContext.observer.kvoProxy.contexts removeObject:aContext];
-    
-}
-
-- (void)__EASY_KVO__removeObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath context:(void *)context
-{
-    _originalRemoveObserver(self, @selector(removeObserver:forKeyPath:context:), observer.kvoProxy, keyPath, context);
-    KVOContext *aContext = [[KVOContext alloc] initWithObservee:self observer:observer keyPath:keyPath context:nil callback:nil];
-    [aContext.observee.kvoProxy.contexts removeObject:aContext];
-    [aContext.observer.kvoProxy.contexts removeObject:aContext];
+    __RELEASE_IF_NO_ARC(aContext);
 }
 
 - (void)__EASY_KVO__addObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath options:(NSKeyValueObservingOptions)options context:(void *)context
@@ -307,25 +301,23 @@ IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
 {
     _originalAddObserver(self, @selector(addObserver:forKeyPath:options:context:), observer.kvoProxy, keyPath, options, context);
     KVOContext *newContext = [[KVOContext alloc] initWithObservee:self observer:observer keyPath:keyPath context:context callback:genericCallback];
-    [self.kvoProxy.contexts addObject:newContext];
-    [observer.kvoProxy.contexts addObject:newContext];
-#if !__has_feature(objc_arc)
-    [newContext release];
-#endif
-    
+    [newContext.observee.kvoProxy.contexts addObject:newContext];
+    [newContext.observer.kvoProxy.contexts addObject:newContext];
+    __RELEASE_IF_NO_ARC(newContext);
 }
 
 - (void)__EASY_KVO__dealloc
 {
     KVOProxy *kvoProxy = objc_getAssociatedObject(self, KVOProxyKey);
     if (kvoProxy) {
+        [kvoProxy unbindAllContexts];
         objc_setAssociatedObject(self, KVOProxyKey, nil, OBJC_ASSOCIATION_RETAIN);
-#if !__has_feature(objc_arc)
-        [kvoProxy release];
-#endif
+        __RELEASE_IF_NO_ARC(kvoProxy);
     }
-
+    
+//#if !__has_feature(objc_arc)
     _originalDealloc(self, NSSelectorFromString(@"dealloc"));
+//#endif
 }
 
 
