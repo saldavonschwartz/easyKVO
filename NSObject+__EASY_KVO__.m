@@ -198,7 +198,6 @@ static NSString *CallbackEncodingObserver;
 
 - (void)dealloc
 {
-    NSLog(@"\nDEAL proxy");
 #if !__has_feature(objc_arc)
     [_contexts release];
     [_i release];
@@ -315,9 +314,9 @@ IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
         __RELEASE_IF_NO_ARC(kvoProxy);
     }
     
-//#if !__has_feature(objc_arc)
+#if !__has_feature(objc_arc)
     _originalDealloc(self, NSSelectorFromString(@"dealloc"));
-//#endif
+#endif
 }
 
 
