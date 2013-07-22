@@ -186,7 +186,7 @@ static NSString *CallbackEncodingObserver;
 {
     NSSet *contextsToUnbind = [NSSet setWithArray:self.contexts];
     for (KVOContext *aContext in contextsToUnbind) {
-        [aContext.observee removeObserver:aContext.observer forKeyPath:aContext.keyPath];
+        [aContext.observee removeObserver:aContext.observer forKeyPath:aContext.keyPath context:aContext.context];
     }
 }
 
