@@ -30,9 +30,11 @@
 #if __has_feature(objc_arc)
 #define __BRIDGE_IF_ARC(x) __bridge x
 #define __RELEASE_IF_NO_ARC(x)
+#define __RETAIN_IF_NO_ARC(x)
 #else
 #define __BRIDGE_IF_ARC(x) x
 #define __RELEASE_IF_NO_ARC(x) [x release]
+#define __RETAIN_IF_NO_ARC(x) [x retain]
 #endif
 
 static const char *KVOProxyKey = "KVOProxyKey";
@@ -95,8 +97,8 @@ static NSString *CallbackEncodingObserver;
 {
     KVOCallback kvoCallback = ^(NSString* keyPath, id object, NSDictionary* change, void* context){};
     OBserverCallback observerCallback = ^(__unsafe_unretained id observeee){};
-    CallbackEncodingKVO = NSStringFromBlockEncoding(kvoCallback);
-    CallbackEncodingObserver = NSStringFromBlockEncoding(observerCallback);
+    CallbackEncodingKVO = __RETAIN_IF_NO_ARC(NSStringFromBlockEncoding(kvoCallback));
+    CallbackEncodingObserver = __RETAIN_IF_NO_ARC(NSStringFromBlockEncoding(observerCallback));
 }
 
 - (id)initWithObservee:(NSObject*)observee observer:(NSObject*)observer keyPath:(NSString*)keyPath context:(void*)context callback:(id)callback
