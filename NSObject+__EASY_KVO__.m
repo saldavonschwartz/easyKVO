@@ -30,7 +30,7 @@
 #if __has_feature(objc_arc)
 #define __BRIDGE_IF_ARC(x) __bridge x
 #define __RELEASE_IF_NO_ARC(x)
-#define __RETAIN_IF_NO_ARC(x)
+#define __RETAIN_IF_NO_ARC(x) x
 #else
 #define __BRIDGE_IF_ARC(x) x
 #define __RELEASE_IF_NO_ARC(x) [x release]
@@ -79,7 +79,7 @@ NSString *NSStringFromBlockEncoding(id block)
 @property (nonatomic, assign, readwrite)NSObject *observer;
 @property (nonatomic, strong, readwrite)NSString *keyPath;
 @property (nonatomic, assign, readwrite)void *context;
-@property (nonatomic, strong, readwrite)id callback;
+@property (nonatomic, copy, readwrite)id callback;
 @property (nonatomic, assign, readwrite)KVOContextCallbackType callbackType;
 
 - (id)initWithObservee:(NSObject*)observee observer:(NSObject*)observer keyPath:(NSString*)keyPath context:(void*)context callback:(id)callback;
@@ -96,7 +96,7 @@ static NSString *CallbackEncodingObserver;
 + (void)initialize
 {
     KVOCallback kvoCallback = ^(NSString* keyPath, id object, NSDictionary* change, void* context){};
-    OBserverCallback observerCallback = ^(__unsafe_unretained id observeee){};
+    OBserverCallback observerCallback = ^(__unsafe_unretained id observee){};
     CallbackEncodingKVO = __RETAIN_IF_NO_ARC(NSStringFromBlockEncoding(kvoCallback));
     CallbackEncodingObserver = __RETAIN_IF_NO_ARC(NSStringFromBlockEncoding(observerCallback));
 }
@@ -111,7 +111,7 @@ static NSString *CallbackEncodingObserver;
         self.context = context;
         
         if (callback) {
-            self.callback = [callback copy];
+            self.callback = callback;
             NSString *callbackEncoding = NSStringFromBlockEncoding(callback);
             if ([callbackEncoding isEqualToString:CallbackEncodingKVO]) {
                 self.callbackType = KVOContextCallbackTypeKVO;
@@ -154,6 +154,15 @@ static NSString *CallbackEncodingObserver;
 {
     return nil;
 }
+
+#if !__has_feature(objc_arc)
+- (void)dealloc
+{
+    [_keyPath release];
+    [_callback release];
+    [super dealloc];
+}
+#endif
 
 @end
 
@@ -202,14 +211,14 @@ static NSString *CallbackEncodingObserver;
     return nil;
 }
 
+#if !__has_feature(objc_arc)
 - (void)dealloc
 {
-#if !__has_feature(objc_arc)
     [__mutableContexts release];
     [_i release];
     [super dealloc];
-#endif
 }
+#endif
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
 {
@@ -320,9 +329,9 @@ IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
         __RELEASE_IF_NO_ARC(kvoProxy);
     }
     
-#if !__has_feature(objc_arc)
+//#if !__has_feature(objc_arc)
     _originalDealloc(self, NSSelectorFromString(@"dealloc"));
-#endif
+//#endif
 }
 
 

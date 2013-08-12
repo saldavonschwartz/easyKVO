@@ -41,7 +41,7 @@ typedef enum {
 @property (nonatomic, assign, readonly)NSObject *observer;
 @property (nonatomic, strong, readonly)NSString *keyPath;
 @property (nonatomic, assign, readonly)void *context;
-@property (nonatomic, strong, readonly)id callback;
+@property (nonatomic, copy, readonly)id callback;
 @property (nonatomic, assign, readonly)KVOContextCallbackType callbackType;
 
 @end
