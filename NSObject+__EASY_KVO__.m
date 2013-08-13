@@ -37,8 +37,16 @@
 #define __RETAIN_IF_NO_ARC(x) [x retain]
 #endif
 
+
+//------------------------------------------------------------------------------------------------------------------------------------------
+
 static const char *KVOProxyKey = "KVOProxyKey";
-static const char *removeInProgressWithContextKey = "removeInProgressWithContextKey";
+static const char *RemoveInProgressWithContextKey = "RemoveInProgressWithContextKey";
+
+static IMP _originalAddObserver;
+static IMP _originalRemoveObserver;
+static IMP _originalRemoveObserverWithContext;
+static IMP _originalDealloc;
 
 typedef struct {
     unsigned long reserved;
@@ -69,6 +77,14 @@ NSString *NSStringFromBlockEncoding(id block)
         index += 2;
     
     return [NSString stringWithUTF8String:descriptor->rest[index]];
+}
+
+IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
+{
+    const char *methodTypeEncoding = method_getTypeEncoding(class_getInstanceMethod(class, original));
+    IMP poppedIMP = class_getMethodImplementation(class, original);
+    class_replaceMethod(class, original, class_getMethodImplementation(class, replacement), methodTypeEncoding);
+    return poppedIMP;
 }
 
 //------------------------------------------------------------------------------------------------------------------------------------------
@@ -111,7 +127,6 @@ static NSString *CallbackEncodingObserver;
         self.context = context;
         
         if (callback) {
-            self.callback = callback;
             NSString *callbackEncoding = NSStringFromBlockEncoding(callback);
             if ([callbackEncoding isEqualToString:CallbackEncodingKVO]) {
                 self.callbackType = KVOContextCallbackTypeKVO;
@@ -119,6 +134,11 @@ static NSString *CallbackEncodingObserver;
             else if ([callbackEncoding isEqualToString:CallbackEncodingObserver]) {
                 self.callbackType = KVOContextCallbackTypeObserver;
             }
+            else {
+                NSAssert(NO, @"invalid callback type. Valid types are KVOContextCallbackTypeKVO or KVOContextCallbackTypeObserver");
+            }
+
+            self.callback = callback;
         }
     }
     
@@ -266,31 +286,18 @@ static NSString *CallbackEncodingObserver;
 
 - (BOOL)removeWithContextInProgress
 {
-    return [((NSNumber*)objc_getAssociatedObject(self, removeInProgressWithContextKey)) boolValue];
+    return [((NSNumber*)objc_getAssociatedObject(self, RemoveInProgressWithContextKey)) boolValue];
 }
 
 - (void)setRemoveWithContextInProgress:(BOOL)removeWithContextInProgress
 {
-    objc_setAssociatedObject(self, removeInProgressWithContextKey, [NSNumber numberWithBool:removeWithContextInProgress], OBJC_ASSOCIATION_RETAIN);
+    objc_setAssociatedObject(self, RemoveInProgressWithContextKey, [NSNumber numberWithBool:removeWithContextInProgress], OBJC_ASSOCIATION_RETAIN);
 }
 
 @end
 
 
 @implementation NSObject (__EASY_KVO__)
-
-static IMP _originalAddObserver;
-static IMP _originalRemoveObserver;
-static IMP _originalRemoveObserverWithContext;
-static IMP _originalDealloc;
-
-IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
-{
-    const char *methodTypeEncoding = method_getTypeEncoding(class_getInstanceMethod(class, original));
-    IMP poppedIMP = class_getMethodImplementation(class, original);
-    class_replaceMethod(class, original, class_getMethodImplementation(class, replacement), methodTypeEncoding);
-    return poppedIMP;
-}
 
 + (void)load
 {
@@ -379,6 +386,12 @@ IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
 
 - (void)__EASY_KVO__dealloc
 {
+    id removeInProgressWithContextProperty = objc_getAssociatedObject(self, RemoveInProgressWithContextKey);
+    if (removeInProgressWithContextProperty) {
+        objc_setAssociatedObject(self, RemoveInProgressWithContextKey, nil, OBJC_ASSOCIATION_RETAIN);
+        __RELEASE_IF_NO_ARC(removeInProgressWithContextProperty);
+    }
+    
     KVOProxy *kvoProxy = objc_getAssociatedObject(self, KVOProxyKey);
     if (kvoProxy) {
         [kvoProxy unbindAllContexts];
