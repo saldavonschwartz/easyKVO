@@ -320,9 +320,7 @@ IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
         __RELEASE_IF_NO_ARC(kvoProxy);
     }
     
-#if !__has_feature(objc_arc)
     _originalDealloc(self, NSSelectorFromString(@"dealloc"));
-#endif
 }
 
 
