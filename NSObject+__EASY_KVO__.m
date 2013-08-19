@@ -30,15 +30,23 @@
 #if __has_feature(objc_arc)
 #define __BRIDGE_IF_ARC(x) __bridge x
 #define __RELEASE_IF_NO_ARC(x)
-#define __RETAIN_IF_NO_ARC(x)
+#define __RETAIN_IF_NO_ARC(x) x
 #else
 #define __BRIDGE_IF_ARC(x) x
 #define __RELEASE_IF_NO_ARC(x) [x release]
 #define __RETAIN_IF_NO_ARC(x) [x retain]
 #endif
 
-static const char *KVOProxyKey = "KVOProxyKey";
 
+//------------------------------------------------------------------------------------------------------------------------------------------
+
+static const char *KVOProxyKey = "KVOProxyKey";
+static const char *RemoveInProgressWithContextKey = "RemoveInProgressWithContextKey";
+
+static IMP _originalAddObserver;
+static IMP _originalRemoveObserver;
+static IMP _originalRemoveObserverWithContext;
+static IMP _originalDealloc;
 
 typedef struct {
     unsigned long reserved;
@@ -71,6 +79,14 @@ NSString *NSStringFromBlockEncoding(id block)
     return [NSString stringWithUTF8String:descriptor->rest[index]];
 }
 
+IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
+{
+    const char *methodTypeEncoding = method_getTypeEncoding(class_getInstanceMethod(class, original));
+    IMP poppedIMP = class_getMethodImplementation(class, original);
+    class_replaceMethod(class, original, class_getMethodImplementation(class, replacement), methodTypeEncoding);
+    return poppedIMP;
+}
+
 //------------------------------------------------------------------------------------------------------------------------------------------
 
 @interface KVOContext ()
@@ -79,7 +95,7 @@ NSString *NSStringFromBlockEncoding(id block)
 @property (nonatomic, assign, readwrite)NSObject *observer;
 @property (nonatomic, strong, readwrite)NSString *keyPath;
 @property (nonatomic, assign, readwrite)void *context;
-@property (nonatomic, strong, readwrite)id callback;
+@property (nonatomic, copy, readwrite)id callback;
 @property (nonatomic, assign, readwrite)KVOContextCallbackType callbackType;
 
 - (id)initWithObservee:(NSObject*)observee observer:(NSObject*)observer keyPath:(NSString*)keyPath context:(void*)context callback:(id)callback;
@@ -96,7 +112,7 @@ static NSString *CallbackEncodingObserver;
 + (void)initialize
 {
     KVOCallback kvoCallback = ^(NSString* keyPath, id object, NSDictionary* change, void* context){};
-    OBserverCallback observerCallback = ^(__unsafe_unretained id observeee){};
+    OBserverCallback observerCallback = ^(__unsafe_unretained id observee){};
     CallbackEncodingKVO = __RETAIN_IF_NO_ARC(NSStringFromBlockEncoding(kvoCallback));
     CallbackEncodingObserver = __RETAIN_IF_NO_ARC(NSStringFromBlockEncoding(observerCallback));
 }
@@ -111,7 +127,6 @@ static NSString *CallbackEncodingObserver;
         self.context = context;
         
         if (callback) {
-            self.callback = [callback copy];
             NSString *callbackEncoding = NSStringFromBlockEncoding(callback);
             if ([callbackEncoding isEqualToString:CallbackEncodingKVO]) {
                 self.callbackType = KVOContextCallbackTypeKVO;
@@ -119,6 +134,11 @@ static NSString *CallbackEncodingObserver;
             else if ([callbackEncoding isEqualToString:CallbackEncodingObserver]) {
                 self.callbackType = KVOContextCallbackTypeObserver;
             }
+            else {
+                NSAssert(NO, @"invalid callback type. Valid types are KVOContextCallbackTypeKVO or KVOContextCallbackTypeObserver");
+            }
+
+            self.callback = callback;
         }
     }
     
@@ -132,6 +152,7 @@ static NSString *CallbackEncodingObserver;
         KVOContext *rho = (KVOContext*)object;
         equality = (self.observee == rho.observee &&
                     self.observer == rho.observer &&
+                    self.context == rho.context &&
                     [self.keyPath isEqualToString:rho.keyPath]);
     }
     
@@ -154,6 +175,15 @@ static NSString *CallbackEncodingObserver;
 {
     return nil;
 }
+
+#if !__has_feature(objc_arc)
+- (void)dealloc
+{
+    [_keyPath release];
+    [_callback release];
+    [super dealloc];
+}
+#endif
 
 @end
 
@@ -186,7 +216,7 @@ static NSString *CallbackEncodingObserver;
 
 - (void)unbindAllContexts
 {
-    NSSet *contextsToUnbind = [NSSet setWithArray:self._mutableContexts];
+    NSArray *contextsToUnbind = [NSArray arrayWithArray:self._mutableContexts];
     for (KVOContext *aContext in contextsToUnbind) {
         [aContext.observee removeObserver:aContext.observer forKeyPath:aContext.keyPath context:aContext.context];
     }
@@ -202,28 +232,30 @@ static NSString *CallbackEncodingObserver;
     return nil;
 }
 
+#if !__has_feature(objc_arc)
 - (void)dealloc
 {
-#if !__has_feature(objc_arc)
     [__mutableContexts release];
     [_i release];
     [super dealloc];
-#endif
 }
+#endif
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
 {
     KVOContext *aContext = [[KVOContext alloc] initWithObservee:object observer:self.delegate keyPath:keyPath context:context callback:nil];
-    
-    if (!self.i.count) {
+    NSInteger nextContextIndex = [self.i firstIndex];
+
+    if ((nextContextIndex == NSNotFound) || ![self._mutableContexts[nextContextIndex] isEqual:aContext]) {
         self.i = [self._mutableContexts indexesOfObjectsPassingTest:^BOOL(KVOContext *anotherContext, NSUInteger idx, BOOL *stop) {
             return [aContext isEqual:anotherContext];
         }].mutableCopy;
         __RELEASE_IF_NO_ARC(_i);
     }
+
+    __RELEASE_IF_NO_ARC(aContext);
     
     if (self.i.count) {
-        __RELEASE_IF_NO_ARC(aContext);
         aContext = self._mutableContexts[self.i.firstIndex];
         [self.i removeIndex:self.i.firstIndex];
         
@@ -246,24 +278,32 @@ static NSString *CallbackEncodingObserver;
 
 //------------------------------------------------------------------------------------------------------------------------------------------
 
-@implementation NSObject (__EASY_KVO__)
+@interface NSObject (__EASY_KVO__PRIVATE)
+@property (nonatomic, assign)BOOL removeWithContextInProgress;
+@end
 
-static IMP _originalAddObserver;
-static IMP _originalRemoveObserver;
-static IMP _originalDealloc;
+@implementation NSObject (__EASY_KVO__PRIVATE)
 
-IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
+- (BOOL)removeWithContextInProgress
 {
-    const char *methodTypeEncoding = method_getTypeEncoding(class_getInstanceMethod(class, original));
-    IMP poppedIMP = class_getMethodImplementation(class, original);
-    class_replaceMethod(class, original, class_getMethodImplementation(class, replacement), methodTypeEncoding);
-    return poppedIMP;
+    return [((NSNumber*)objc_getAssociatedObject(self, RemoveInProgressWithContextKey)) boolValue];
 }
+
+- (void)setRemoveWithContextInProgress:(BOOL)removeWithContextInProgress
+{
+    objc_setAssociatedObject(self, RemoveInProgressWithContextKey, [NSNumber numberWithBool:removeWithContextInProgress], OBJC_ASSOCIATION_RETAIN);
+}
+
+@end
+
+
+@implementation NSObject (__EASY_KVO__)
 
 + (void)load
 {
     _originalAddObserver = popAndReplaceImplementation(self, @selector(addObserver:forKeyPath:options:context:), @selector(__EASY_KVO__addObserver:forKeyPath:options:context:));
     _originalRemoveObserver = popAndReplaceImplementation(self, @selector(removeObserver:forKeyPath:), @selector(__EASY_KVO__removeObserver:forKeyPath:));
+    _originalRemoveObserverWithContext = popAndReplaceImplementation(self, @selector(removeObserver:forKeyPath:context:), @selector(__EASY_KVO__removeObserver:forKeyPath:context:));
     _originalDealloc = popAndReplaceImplementation(self, NSSelectorFromString(@"dealloc"), @selector(__EASY_KVO__dealloc));
 }
 
@@ -280,11 +320,44 @@ IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
 
 - (void)__EASY_KVO__removeObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath
 {
+    if (self.removeWithContextInProgress) {
+        observer = ((KVOProxy*)observer).delegate;
+    }
+
     _originalRemoveObserver(self, @selector(removeObserver:forKeyPath:), observer.kvoProxy, keyPath);
     KVOContext *aContext = [[KVOContext alloc] initWithObservee:self observer:observer keyPath:keyPath context:nil callback:nil];
-    [aContext.observee.kvoProxy._mutableContexts removeObject:aContext];
-    [aContext.observer.kvoProxy._mutableContexts removeObject:aContext];
+    NSUInteger observeeContextIndex = [aContext.observee.kvoProxy._mutableContexts indexOfObject:aContext];
+    if (observeeContextIndex != NSNotFound) {
+        [aContext.observee.kvoProxy._mutableContexts removeObjectAtIndex:observeeContextIndex];
+    }
+    NSUInteger observerContextIndex = [aContext.observer.kvoProxy._mutableContexts indexOfObject:aContext];
+    if (observerContextIndex != NSNotFound) {
+        [aContext.observer.kvoProxy._mutableContexts removeObjectAtIndex:observerContextIndex];
+    }
     __RELEASE_IF_NO_ARC(aContext);
+}
+
+- (void)__EASY_KVO__removeObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath context:(void *)context
+{
+    if (!context) {
+        [self __EASY_KVO__removeObserver:observer forKeyPath:keyPath];
+        return;
+    }
+
+    self.removeWithContextInProgress = YES;
+    _originalRemoveObserverWithContext(self, @selector(removeObserver:forKeyPath:), observer.kvoProxy, keyPath, context);
+    KVOContext *aContext = [[KVOContext alloc] initWithObservee:self observer:observer keyPath:keyPath context:context callback:nil];
+    NSUInteger observeeContextIndex = [aContext.observee.kvoProxy._mutableContexts indexOfObject:aContext];
+    if (observeeContextIndex != NSNotFound) {
+        [aContext.observee.kvoProxy._mutableContexts removeObjectAtIndex:observeeContextIndex];
+    }
+    NSUInteger observerContextIndex = [aContext.observer.kvoProxy._mutableContexts indexOfObject:aContext];
+    if (observerContextIndex != NSNotFound) {
+        [aContext.observer.kvoProxy._mutableContexts removeObjectAtIndex:observerContextIndex];
+    }
+
+    __RELEASE_IF_NO_ARC(aContext);
+    self.removeWithContextInProgress = NO;
 }
 
 - (void)__EASY_KVO__addObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath options:(NSKeyValueObservingOptions)options context:(void *)context
@@ -313,6 +386,12 @@ IMP popAndReplaceImplementation(Class class, SEL original, SEL replacement)
 
 - (void)__EASY_KVO__dealloc
 {
+    id removeInProgressWithContextProperty = objc_getAssociatedObject(self, RemoveInProgressWithContextKey);
+    if (removeInProgressWithContextProperty) {
+        objc_setAssociatedObject(self, RemoveInProgressWithContextKey, nil, OBJC_ASSOCIATION_RETAIN);
+        __RELEASE_IF_NO_ARC(removeInProgressWithContextProperty);
+    }
+    
     KVOProxy *kvoProxy = objc_getAssociatedObject(self, KVOProxyKey);
     if (kvoProxy) {
         [kvoProxy unbindAllContexts];
