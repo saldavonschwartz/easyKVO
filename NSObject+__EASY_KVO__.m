@@ -399,7 +399,7 @@ static NSString *CallbackEncodingObserver;
         __RELEASE_IF_NO_ARC(kvoProxy);
     }
 
-    id (*deallocImp)(id, SEL) = (id(*)(id, SEL))_originalDealloc;
+    void (*deallocImp)(id, SEL) = (void(*)(id, SEL))_originalDealloc;
     deallocImp(self,NSSelectorFromString(@"dealloc"));
 }
 
