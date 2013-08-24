@@ -398,8 +398,9 @@ static NSString *CallbackEncodingObserver;
         objc_setAssociatedObject(self, KVOProxyKey, nil, OBJC_ASSOCIATION_RETAIN);
         __RELEASE_IF_NO_ARC(kvoProxy);
     }
-    
-    _originalDealloc(self, NSSelectorFromString(@"dealloc"));
+
+    id (*deallocImp)(id, SEL) = (id(*)(id, SEL))_originalDealloc;
+    deallocImp(self,NSSelectorFromString(@"dealloc"));
 }
 
 
