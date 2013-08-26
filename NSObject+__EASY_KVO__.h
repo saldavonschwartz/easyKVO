@@ -73,4 +73,7 @@ typedef enum {
 //  This callback only provides access to the observee (the sender of the KVO notification whose keyPath changed)
 - (void)addObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath options:(NSKeyValueObservingOptions)options context:(void *)context observerCallback:(OBserverCallback)callback;
 
+//  Shorter version of the above with defaults: options:0 context:nil
+- (void)addObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath observerCallback:(OBserverCallback)callback;
+
 @end

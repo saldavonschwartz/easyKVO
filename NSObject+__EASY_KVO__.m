@@ -370,6 +370,11 @@ static NSString *CallbackEncodingObserver;
     [self addObserver:observer forKeyPath:keyPath options:options context:context genericCallback:callback];
 }
 
+- (void)addObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath observerCallback:(OBserverCallback)callback
+{
+    [self addObserver:observer forKeyPath:keyPath options:0 context:nil observerCallback:callback];
+}
+
 - (void)addObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath options:(NSKeyValueObservingOptions)options context:(void *)context KVOCallback:(KVOCallback)callback
 {
     [self addObserver:observer forKeyPath:keyPath options:options context:context genericCallback:callback];
