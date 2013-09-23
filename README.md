@@ -1,6 +1,8 @@
 easyKVO
 =======
 
+**Still work in Progress! :)**
+
 Category over `NSObject` that provides automatic removal of KVO observers and broadcasters when objects go out of scope
 as well as KVO-triggered callbacks for observers.
 
@@ -19,7 +21,7 @@ Features
 Installation
 ============
 
-Copy the category to your project and either include it in your prefix header for global scope or in whichever file you want.
+Copy the category to your project and include the header in your prefix header for global scope or in whichever file you want.
 
 
 Usage
